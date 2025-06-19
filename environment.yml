@@ -1,0 +1,15 @@
+name: plft               # pick any env name you like
+channels:
+  - pytorch                       # keeps the official PyTorch builds first
+  - conda-forge                   # wide package coverage
+  - defaults
+
+dependencies:
+  - python=3.11                   # or 3.11 if all your libs support it
+  - pytorch                       # latest stable CPU or GPU build (CUDA depends on your system)
+  - torchvision                   # handy if you ever work with images
+  - torchaudio                    # optional but often useful
+  - numpy
+  - pip                           # lets you mix in PyPI packages
+  - pip:
+      - transformers              # Hugging Face Transformers (PyPI name)
