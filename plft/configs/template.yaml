@@ -1,0 +1,61 @@
+seed: 42
+
+data:
+  format: csv
+  train_file: data/train.csv
+  val_file:   data/val.csv
+  test_file:  data/test.csv
+  sequence_column: sequence
+  label_column: label
+  max_length: 1024
+  optional_features: []
+  preprocess: protbert   # maps to a function in PREPROC_REGISTRY
+
+model:
+  backbone_name: Rostlab/prot_bert
+  task_type: SEQ_CLASSIFICATION # one of: SEQ_CLASSIFICATION, SEQ_REGRESSION, TOKEN_CLASSIFICATION, TOKEN_REGRESSION
+
+tokenizer:
+  name: ${model.backbone_name}
+  do_lower_case: false
+
+head:
+  type: mlp                     # maps to HEAD_REGISTRY["mlp"] → MLPHead
+  params:
+    # input_dim will be auto-filled from backbone hidden_size
+    hidden_dim: 512
+    output_dim: 2               # set 1 for regression; or leave null to auto infer from dataset if available
+    num_hidden_layers: 1
+    dropout_rate: 0.1
+    classification_mode: protein
+    pooling_strategy: mean
+
+
+peft:
+  enabled: true
+  method: lora
+  params:
+    r: 8
+    lora_alpha: 32
+    target_modules: [q_proj, v_proj]
+    dropout: 0.05
+    bias: none
+    task_type: SEQ_CLS          # PEFT’s own enum (string)
+
+trainer:
+  output_dir: outputs/protbert_seqcls
+  epochs: 20
+  batch_size: 4
+  learning_rate: 3e-5
+  weight_decay: 0.01
+  gradient_accumulation_steps: 1
+  eval_strategy: epoch
+  save_strategy: epoch
+  logging_steps: 50
+  eval_split: validation
+
+hydra:
+  run:
+    dir: ${trainer.output_dir}
+  job:
+    chdir: true

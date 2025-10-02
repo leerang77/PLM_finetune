@@ -2,14 +2,21 @@ name: plft               # pick any env name you like
 channels:
   - pytorch                       # keeps the official PyTorch builds first
   - conda-forge                   # wide package coverage
+  - huggingface                   # for transformers
   - defaults
 
 dependencies:
   - python=3.11                   # or 3.11 if all your libs support it
-  - pytorch                       # latest stable CPU or GPU build (CUDA depends on your system)
-  - torchvision                   # handy if you ever work with images
-  - torchaudio                    # optional but often useful
+  - pytorch=2.5.1        # pick the cuda variant you need, e.g.
+                         # pytorch=2.5.1=cuda121* (GPU) or =*cpu* (CPU-only)
+  - torchvision
+  - torchaudio
   - numpy
-  - pip                           # lets you mix in PyPI packages
-  - pip:
-      - transformers              # Hugging Face Transformers (PyPI name)
+  - sympy=1.13.1         # pin to satisfy PyTorch’s strict requirement
+  - transformers=4.52.4  # pulled from conda-forge
+  - pytorch_geometric=2.6.1  # pulled from conda-forge
+  - datasets
+  - scikit-learn
+  - peft
+  - hydra-core
+  - omegaconf
