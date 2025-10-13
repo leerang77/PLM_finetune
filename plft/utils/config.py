@@ -3,6 +3,8 @@ Configuration module for PLFT (Pretrained Language Fine-Tuning) project.
 """
 
 from enum import Enum
+from dataclasses import dataclass
+import torch
 
 class TaskType(Enum):
     """
@@ -21,3 +23,28 @@ def to_task_type(s: str) -> TaskType:
     if task_type is None:
         valid = [k for k in vars(TaskType).keys() if k.isupper()]
         raise ValueError(f"Unknown TaskType '{s}'. Valid: {valid}")
+    return task_type
+
+@dataclass
+class DataCollatorForTokenRegression:
+    """
+    Data collator that will dynamically pad the inputs for token-level regression tasks.
+    Args:
+        tokenizer: The tokenizer used for encoding the data.
+        pad_value (float): The value to use for padding labels (default: -100).
+    """
+    tokenizer: any
+    pad_value: float = -100
+    def __call__(self, features):
+        # pull labels off first so tokenizer.pad() doesn't see them
+        labels = [torch.tensor(f.pop("labels"), dtype=torch.float32) for f in features]
+        batch = self.tokenizer.pad(features, return_tensors="pt")
+
+        max_len = batch["input_ids"].size(1)
+        padded = [
+            torch.nn.functional.pad(y, (0, max_len - y.numel()), value=self.pad_value)
+            for y in labels
+        ]
+        batch["labels"] = torch.stack(padded)                       # [B, L] float32
+        batch["label_mask"] = ~torch.isnan(batch["labels"])         # [B, L] bool
+        return batch
