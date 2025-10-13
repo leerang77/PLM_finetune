@@ -1,3 +1,6 @@
+"""
+Main model that combines a pretrained language model backbone with a task-specific head.
+"""
 from typing import Optional, Any
 import torch
 import torch.nn as nn
@@ -11,7 +14,6 @@ from plft.utils.config import TaskType
 
 class PLMTaskModel(PreTrainedModel):
     """General model for sequence/token classification and regression."""
-
     def __init__(
         self,
         task_type: TaskType,
@@ -53,7 +55,7 @@ class PLMTaskModel(PreTrainedModel):
         Args:
             input_ids (torch.LongTensor): Input token IDs.
             attention_mask (Optional[torch.FloatTensor]): Attention mask.
-            labels (Optional[torch.LongTensor]): Labels for classification tasks.
+            labels (Optional[torch.LongTensor]): Labels for the data.
             **head_args (Any): Additional arguments for the head.
         Returns:
             SequenceClassifierOutput: Output of the model including logits and loss if labels are provided.
@@ -77,7 +79,10 @@ class PLMTaskModel(PreTrainedModel):
                 preds = logits.squeeze(-1)                    # (batch, seq_len)
                 # build a mask of the real (non-pad) tokens
                 mask  = attention_mask.to(preds.dtype)        # 1.0 for real tokens, 0.0 for pads
-    
+                # some residues may be real but is missing a label;
+                # the labels will be padded but they will be included in the attention.
+                # Thus, additionally ignore pads in loss computation:
+                mask = mask*(labels != -100).to(mask.dtype)  # combine with label mask if any
                 # compute squared error only on real tokens
                 se    = (preds - labels.float()) ** 2         # (batch, seq_len)
                 loss  = (se * mask).sum() / mask.sum()        # mean over real positions
