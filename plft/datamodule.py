@@ -3,6 +3,8 @@ from typing import Optional, Callable, List
 from transformers import AutoTokenizer
 from datasets import load_dataset, Dataset, DatasetDict
 
+import ast
+
 class ProteinDataModule:
     """
     Data module for protein sequence datasets, handling loading, preprocessing,
@@ -53,13 +55,18 @@ class ProteinDataModule:
             seqs = dataset[sequence_column]
             if self.preprocess_fn: # Optional preprocessing step (e.g. Add space for ProtBert)
                 seqs = [self.preprocess_fn(s) for s in seqs]
+                print("Applied preprocess_fn to sequences.")
+                print("Sample preprocessed sequence:", seqs[0] if len(seqs) > 0 else "n/a")
             tokenized = self.tokenizer( # Tokenization
                 seqs,
                 truncation=True,
                 max_length=self.max_length,
             )
             if label_column in dataset: # Attach labels if available
-                tokenized["label"] = dataset[label_column]
+                if isinstance(dataset[label_column][0], str):
+                    tokenized["label"] = [ast.literal_eval(x) for x in dataset[label_column]]
+                else:
+                    tokenized["label"] = dataset[label_column]
             for key in self.optional_features: # Optional keys for additional features to keep
                 if key in dataset:
                     tokenized[key] = dataset[key]

@@ -4,6 +4,7 @@ Configuration module for PLFT (Pretrained Language Fine-Tuning) project.
 
 from enum import Enum
 from dataclasses import dataclass
+from transformers import DataCollatorWithPadding, DataCollatorForTokenClassification
 import torch
 
 class TaskType(Enum):
@@ -37,7 +38,7 @@ class DataCollatorForTokenRegression:
     pad_value: float = -100
     def __call__(self, features):
         # pull labels off first so tokenizer.pad() doesn't see them
-        labels = [torch.tensor(f.pop("labels"), dtype=torch.float32) for f in features]
+        labels = [torch.tensor(f.pop("label"), dtype=torch.float32) for f in features]
         batch = self.tokenizer.pad(features, return_tensors="pt")
 
         max_len = batch["input_ids"].size(1)
@@ -46,5 +47,24 @@ class DataCollatorForTokenRegression:
             for y in labels
         ]
         batch["labels"] = torch.stack(padded)                       # [B, L] float32
-        batch["label_mask"] = ~torch.isnan(batch["labels"])         # [B, L] bool
+        batch["label_mask"] = batch["labels"] != self.pad_value         # [B, L] bool
         return batch
+
+def choose_data_collator(task_type: TaskType, tokenizer: any):
+    """
+    Choose the appropriate data collator based on the task type.
+    Args:
+        task_type (TaskType): The type of task (e.g., SEQ_CLASSIFICATION, TOKEN_REGRESSION).
+        tokenizer: The tokenizer used for encoding the data.
+    Returns:
+        A data collator instance suitable for the specified task type.
+    """
+    if task_type == TaskType.TOKEN_CLASSIFICATION:
+        return DataCollatorForTokenClassification(
+            tokenizer,
+            label_pad_token_id=-100,
+        )
+    elif task_type == TaskType.TOKEN_REGRESSION:
+        return DataCollatorForTokenRegression(tokenizer, pad_value=-100)
+    else:
+        return DataCollatorWithPadding(tokenizer)

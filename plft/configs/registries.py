@@ -12,6 +12,6 @@ HEAD_REGISTRY: Dict[str, Callable] = {
 }
 
 PREPROC_REGISTRY: Dict[str, Callable[[str], str]] = {
-    "protbert_spaces": ProtBert_preprocess,
+    "protbert": ProtBert_preprocess,
     "none": lambda s: s,
 }

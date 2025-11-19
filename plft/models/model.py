@@ -8,9 +8,10 @@ from transformers import (
     AutoConfig,
     AutoModel,
     PreTrainedModel,
-    SequenceClassifierOutput,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 from plft.utils.config import TaskType
+from plft.utils.loss import get_loss_for_task
 
 class PLMTaskModel(PreTrainedModel):
     """General model for sequence/token classification and regression."""
@@ -48,7 +49,8 @@ class PLMTaskModel(PreTrainedModel):
         output_hidden_states: bool = False,
         output_attentions: bool = False,
         **head_args: Any,
-    ) -> SequenceClassifierOutput:
+    ) -> SequenceClassifierOutput: # For convenience we duck type this to use for all tasks for now, 
+                                   # though it can be a bit confusing
         """
         Forward pass for the PLMTaskModel.
         
@@ -69,45 +71,23 @@ class PLMTaskModel(PreTrainedModel):
             output_attentions=output_attentions,
         )
         hidden_states = outputs.last_hidden_state
+        # The Hugging Face Trainer may inject `num_items_in_batch` (and other
+        # internal kwargs) into the model call. Many head implementations
+        # don't accept these extra kwargs, which causes a TypeError when
+        # forwarded directly. Remove known Trainer-only keys before calling
+        # the head.
+        for arg in ["num_items_in_batch", "return_dict", "inputs_embeds", "label_mask"]:
+            head_args.pop(arg, None)
+
         logits = self.head(hidden_states, attention_mask=attention_mask, **head_args)
-        
         # Compute loss
         loss = None
         if labels is not None:
-            if self.task_type is TaskType.TOKEN_REGRESSION:
-                # logits: (batch, seq_len, 1) → squeeze
-                preds = logits.squeeze(-1)                    # (batch, seq_len)
-                # build a mask of the real (non-pad) tokens
-                mask  = attention_mask.to(preds.dtype)        # 1.0 for real tokens, 0.0 for pads
-                # some residues may be real but is missing a label;
-                # the labels will be padded but they will be included in the attention.
-                # Thus, additionally ignore pads in loss computation:
-                mask = mask*(labels != -100).to(mask.dtype)  # combine with label mask if any
-                # compute squared error only on real tokens
-                se    = (preds - labels.float()) ** 2         # (batch, seq_len)
-                loss  = (se * mask).sum() / mask.sum()        # mean over real positions
-    
-            elif self.task_type is TaskType.TOKEN_CLASSIFICATION:
-                    # logits: (batch, seq_len, num_labels)
-                loss = nn.CrossEntropyLoss(ignore_index=-100)(
-                    logits.view(-1, logits.size(-1)),
-                    labels.view(-1),
-                )
-    
-            elif self.task_type is TaskType.SEQ_REGRESSION:
-                    # logits: (batch, 1)
-                loss = nn.MSELoss()(logits.squeeze(-1), labels.float())
-    
-            else:  # SEQ_CLASSIFICATION
-                    # logits: (batch, num_labels)
-                loss = nn.CrossEntropyLoss()(
-                    logits.view(-1, logits.size(-1)),
-                    labels.view(-1),
-                )
+            loss = get_loss_for_task(self.task_type, logits, labels, attention_mask)
      
         return SequenceClassifierOutput(
-            loss=loss,
-            logits=logits,
+            loss=loss, # (1,)
+            logits=logits, # Can be different shapes depending on task
             hidden_states=outputs.hidden_states   if output_hidden_states else None,
             attentions=outputs.attentions         if output_attentions    else None,
         )

@@ -3,7 +3,7 @@
 from typing import Dict, Callable
 import numpy as np
 from transformers import EvalPrediction
-from sklearn.metrics import precision_score, recall_score, f1_score, r2_score
+from sklearn.metrics import precision_score, recall_score, f1_score
 from plft.utils.config import TaskType
 
 def seq_classification_metrics(
@@ -37,6 +37,22 @@ def seq_classification_metrics(
         "f1":        f1,
     }
 
+def seq_regression_metrics(
+    logits: np.ndarray,
+    labels: np.ndarray,
+) -> Dict[str, float]:
+    """
+    Sequence-level regression metrics.
+    logits: (batch,) or (batch,1)
+    labels: (batch,)
+    """
+    preds  = np.asarray(logits).squeeze(-1)
+    labels = np.asarray(labels).squeeze()
+
+    mse  = float(np.mean((preds - labels) ** 2))
+    mae  = float(np.mean(np.abs(preds - labels)))
+    rmse = float(np.sqrt(mse))
+    return {"mse": mse, "mae": mae, "rmse": rmse}
 
 def token_classification_metrics(
     logits: np.ndarray,
@@ -77,30 +93,6 @@ def token_classification_metrics(
         "f1":        f1,
     }
 
-def _safe_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Return R² or NaN if not computable (e.g., <2 valid samples)."""
-    if y_true.size < 2:
-        return float("nan")
-    return float(r2_score(y_true, y_pred))
-
-def seq_regression_metrics(
-    logits: np.ndarray,
-    labels: np.ndarray,
-) -> Dict[str, float]:
-    """
-    Sequence-level regression metrics.
-    logits: (batch,) or (batch,1)
-    labels: (batch,)
-    """
-    preds  = np.asarray(logits).squeeze(-1)
-    labels = np.asarray(labels).squeeze()
-
-    mse  = float(np.mean((preds - labels) ** 2))
-    mae  = float(np.mean(np.abs(preds - labels)))
-    rmse = float(np.sqrt(mse))
-    r2   = _safe_r2(labels, preds)
-    return {"mse": mse, "mae": mae, "rmse": rmse, "r2": r2}
-
 
 def token_regression_metrics(
     logits: np.ndarray,
@@ -126,13 +118,12 @@ def token_regression_metrics(
     vlabels = labels[mask]
 
     if vlabels.size == 0:
-        return {"mse": 0.0, "mae": 0.0, "rmse": 0.0, "r2": 0.0}
+        return {"mse": 0.0, "mae": 0.0, "rmse": 0.0}
 
     mse  = float(np.mean((vpreds - vlabels) ** 2))
     mae  = float(np.mean(np.abs(vpreds - vlabels)))
     rmse = float(np.sqrt(mse))
-    r2   = _safe_r2(vlabels, vpreds)
-    return {"mse": mse, "mae": mae, "rmse": rmse, "r2": r2}
+    return {"mse": mse, "mae": mae, "rmse": rmse}
 
 
 def get_compute_metrics_fn(task_type: TaskType) -> Callable[[EvalPrediction], Dict[str, float]]:

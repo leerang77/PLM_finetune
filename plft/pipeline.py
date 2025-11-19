@@ -5,28 +5,25 @@ Uses a config-driven approach to set up the model, data, and training parameters
 """
 import os
 import random
+import json
+from pathlib import Path
 import torch
 from hydra import main
 from omegaconf import DictConfig
 from transformers import AutoTokenizer, AutoConfig
-from plft.utils.config import TaskType, to_task_type
+from plft.utils.config import to_task_type
 from plft.utils.lora_utils import inject_lora
 from plft.models.model import PLMTaskModel
 from plft.datamodule import ProteinDataModule
 from plft.train import ProteinTaskTrainer
 from plft.configs.registries import HEAD_REGISTRY, PREPROC_REGISTRY
+from plft.analysis.analyze_run import analyze_run
 
-@main(config_path="configs", config_name="protbert_seqcls.yaml")
-def run(cfg: DictConfig):
+def seed_all(seed):
     """
-    Defines the main pipeline for PLFT.
-    Loads configuration, initializes tokenizer, data module, model, and trainer.
-    Then runs the training and evaluation process.
-    Args:
-        cfg_path (str): Path to the configuration YAML file.
+    Seed all random number generators for reproducibility.
     """
     # Seed
-    seed = cfg.get("seed", 42)
     seed = int(seed)
     random.seed(seed)
     torch.manual_seed(seed)
@@ -34,8 +31,16 @@ def run(cfg: DictConfig):
         torch.cuda.manual_seed_all(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
 
-    # 1. define the data module. We need to get tokenizer and preprocess function to do that.
-    # Tokenizer
+def get_datamodule(cfg: DictConfig) -> tuple[ProteinDataModule, AutoTokenizer]:
+    """
+    Initializes the ProteinDataModule based on the provided configuration.
+    Args:
+        cfg (DictConfig): Configuration dictionary containing data module parameters.
+    Returns:
+        ProteinDataModule: Initialized data module.
+        AutoTokenizer: Initialized tokenizer.
+    """
+   # Tokenizer
     tok_cfg = cfg["tokenizer"]
     tokenizer = AutoTokenizer.from_pretrained(
         tok_cfg["name"],
@@ -57,15 +62,31 @@ def run(cfg: DictConfig):
         sequence_column=data_cfg["sequence_column"],
         optional_features=data_cfg.get("optional_features", []),
     )
-    datasets = dm.get_datasets()
+    return dm, tokenizer
 
-    # 2. Define the task head
+def get_task_head(cfg: DictConfig, datasets: dict) -> torch.nn.Module:
+    """
+    Initializes the task-specific head based on the provided configuration.
+    Args:
+        cfg (DictConfig): Configuration dictionary containing head parameters.
+        datasets (dict): Dictionary of datasets to infer properties like num_labels.
+    Returns:
+        torch.nn.Module: Initialized task head.
+    """
     # Infer num_labels from dataset if possible
     num_labels = cfg["head"]["params"].get("output_dim")
-    feat = datasets["train"].features
-    if num_labels is None and "label" in feat and hasattr(feat["label"], "num_classes"):
-        num_labels = feat["label"].num_classes
-        cfg["head"]["params"]["output_dim"] = num_labels
+    if num_labels is None:
+        if cfg["model"]["task_type"] in ["SEQ_REGRESSION", "TOKEN_REGRESSION"]:
+            num_labels = 1
+        elif cfg["model"]["task_type"] in ["SEQ_CLASSIFICATION"]:
+            num_labels = len(set([x['label'] for x in datasets["train"] if x != -100]))
+        elif cfg["model"]["task_type"] in ["TOKEN_CLASSIFICATION"]:
+            all_labels = []
+            for x in datasets["train"]:
+                all_labels.extend([lbl for lbl in x['label'] if lbl != -100])
+            num_labels = len(set(all_labels))
+            
+    cfg["head"]["params"]["output_dim"] = num_labels
 
     # Backbone hidden size → head.input_dim
     backbone_name = cfg["model"]["backbone_name"]
@@ -79,19 +100,51 @@ def run(cfg: DictConfig):
     head_type = cfg["head"]["type"]
     head_model = HEAD_REGISTRY[head_type]
     head = head_model(**cfg["head"]["params"])
+    return head
 
-    # 3. Define the full model
-    # Model
+def get_full_model(head: torch.nn.Module, cfg: DictConfig) -> PLMTaskModel:
+    """
+    Initializes the full PLMTaskModel with backbone and head.
+    Args:
+        head (torch.nn.Module): Task-specific head.
+        cfg (DictConfig): Configuration dictionary containing model parameters.
+    Returns:
+        PLMTaskModel: Initialized full model.
+    """
     model = PLMTaskModel(
         task_type=to_task_type(cfg["model"]["task_type"]),
-        backbone_name=backbone_name,
+        backbone_name=cfg["model"]["backbone_name"],
         head=head,
     )
+
     # Optional PEFT/LoRA
-    if bool(cfg.peft.enabeled):
+    if bool(cfg.peft.enabled):
         p = cfg["peft"]["params"]
+        if p.get("task_type") is None:
+            # Auto infer PEFT task type
+            if model.task_type in [to_task_type("SEQ_CLASSIFICATION"), to_task_type("SEQ_REGRESSION")]:
+                p["task_type"] = "SEQ_CLS"
+            elif model.task_type in [to_task_type("TOKEN_CLASSIFICATION"), to_task_type("TOKEN_REGRESSION")]:
+                p["task_type"] = "TOKEN_CLS"
         model = inject_lora(model, p)
-    # Trainer
+    return model
+
+def get_trainer(
+    model: PLMTaskModel,
+    tokenizer: AutoTokenizer,
+    datasets: dict,
+    cfg: DictConfig,
+) -> ProteinTaskTrainer:
+    """
+    Initializes the ProteinTaskTrainer based on the provided configuration.
+    Args:
+        model (PLMTaskModel): The model to be trained.
+        tokenizer (AutoTokenizer): The tokenizer used for data processing.
+        datasets (dict): Dictionary of datasets for training, evaluation, and testing.
+        cfg (DictConfig): Configuration dictionary containing trainer parameters.
+    Returns:
+        ProteinTaskTrainer: Initialized trainer.
+    """
     tr_cfg = cfg["trainer"]
     trainer = ProteinTaskTrainer(
         model=model,
@@ -107,16 +160,57 @@ def run(cfg: DictConfig):
         save_strategy=tr_cfg["save_strategy"],
         logging_steps=tr_cfg["logging_steps"],
     )
+    return trainer
 
-    # 4. Train + eval
+@main(config_path="configs", config_name="protbert_seqcls.yaml")
+def run(cfg: DictConfig):
+    """
+    Defines the main pipeline for PLFT.
+    Loads configuration, initializes tokenizer, data module, model, and trainer.
+    Then runs the training and evaluation process.
+    Args:
+        cfg_path (str): Path to the configuration YAML file.
+    """
+    # Seed everything
+    seed_all(cfg.get("seed", 42))
+
+    # 1. define the data module. We need to get tokenizer and preprocess function to do that.
+    dm, tokenizer = get_datamodule(cfg)
+    datasets = dm.get_datasets()
+
+    # 2. Define the task head
+    head = get_task_head(cfg, datasets)
+
+    # 3. Define the full model
+    model = get_full_model(head, cfg)
+
+    # 4. Define the trainer
+    trainer = get_trainer(
+        model=model,
+        tokenizer=tokenizer,
+        datasets=datasets,
+        cfg=cfg,
+    )
+
+    # 5. Train + eval
     trainer.train()
-    split = tr_cfg.get("eval_split", "validation")
+    split = cfg["trainer"].get("eval_split", "validation")
     val_metrics = trainer.evaluate(split=split)
+    trainer.save_metrics(split, val_metrics)
     print(f"Eval metrics on {split}:", val_metrics)
 
     if datasets.get("test") is not None:
         test_metrics = trainer.evaluate(split="test")
+        trainer.save_metrics("test", test_metrics)
         print("Test:", test_metrics)
+
+    output_dir = Path(cfg["trainer"]["output_dir"])
+    with open(output_dir / "trainer_state.json", "w", encoding="UTF-8") as f:
+        json.dump(trainer.trainer.state.to_dict(), f, indent=2)
+
+    result = analyze_run(
+        run_dir=output_dir,
+    )
 
 if __name__ == "__main__":
     run()
