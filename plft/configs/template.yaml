@@ -24,10 +24,10 @@ head:
   params:
     # input_dim will be auto-filled from backbone hidden_size
     hidden_dim: 512
-    output_dim: 2               # set 1 for regression; or leave null to auto infer from dataset if available
+    output_dim: 1               # set 1 for regression; or leave null to auto infer from dataset if available
     num_hidden_layers: 1
     dropout_rate: 0.1
-    classification_mode: protein
+    classification_mode: residue
     pooling_strategy: mean
 
 
@@ -37,10 +37,10 @@ peft:
   params:
     r: 8
     lora_alpha: 32
-    target_modules: [q_proj, v_proj]
+    target_modules: auto_qkv
     dropout: 0.05
     bias: none
-    task_type: SEQ_CLS          # PEFT’s own enum (string)
+    task_type: null          # PEFT’s own enum (string), leave null for auto infer SEQ_CLS or TOKEN_CLS
 
 trainer:
   output_dir: outputs/protbert_seqcls
