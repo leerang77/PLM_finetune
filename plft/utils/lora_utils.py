@@ -54,9 +54,10 @@ def inject_lora(base_model, lora_cfg_input):
         nn.Module: The model with LoRA layers injected.
     """
     targets = resolve_lora_targets(base_model, lora_cfg_input.target_modules)  # "auto_qkv" or list[str]
+    print("Injecting LoRA into target modules:", targets)
     lora_cfg = LoraConfig(
         r=lora_cfg_input.r,
-        lora_alpha=lora_cfg_input.alpha,
+        lora_alpha=lora_cfg_input.lora_alpha,
         target_modules=targets,
         lora_dropout=lora_cfg_input.dropout,
         bias=lora_cfg_input.bias,
