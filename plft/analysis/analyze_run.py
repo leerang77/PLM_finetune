@@ -165,7 +165,7 @@ def plot_eval_metrics(
 
 def analyze_run(
     run_dir: PathLike,
-    extra_eval_metrics: Optional[Sequence[str]] = None,
+    extra_eval_metrics: Optional[Sequence[str]] = ("accuracy", "precision", "recall", "f1", "mse", "mae", "rmse"),
 ) -> dict:
     """
     High-level helper: load trainer_state.json, build history DataFrame,
