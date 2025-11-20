@@ -1,0 +1,6 @@
+__pycache__/
+**/__pycache__/
+plft.egg-info/
+run_local_test.sh
+data/training_data/
+test_notebooks/outputs/
