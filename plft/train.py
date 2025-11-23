@@ -92,12 +92,12 @@ class ProteinTaskTrainer:
             callbacks=[early_stopping_callback] if early_stopping else None,
         )
 
-    def train(self):
+    def train(self, resume_from_checkpoint: Optional[str] = None):
         """
         Train the model using the huggingface Trainer module.
         """
-        return self.trainer.train()
-    
+        return self.trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+
     def predict(self, dataset: Dataset) -> Dict[str, any]:
         """
         Make predictions on the given dataset.
