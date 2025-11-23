@@ -27,8 +27,8 @@ head:
     output_dim: 1               # set 1 for regression; or leave null to auto infer from dataset if available
     num_hidden_layers: 1
     dropout_rate: 0.1
-    classification_mode: residue
-    pooling_strategy: mean
+    classification_mode: protein # choose residue, protein. Make sure it is consistent with model.task_type
+    pooling_strategy: mean # only used if protein classification mode, choose between mean, cls
 
 
 peft:

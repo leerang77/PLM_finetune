@@ -116,6 +116,7 @@ def get_full_model(head: torch.nn.Module, cfg: DictConfig) -> PLMTaskModel:
         task_type=to_task_type(cfg["model"]["task_type"]),
         backbone_name=cfg["model"]["backbone_name"],
         head=head,
+        freeze_backbone=cfg["model"].get("freeze_backbone", False)
     )
 
     # Optional PEFT/LoRA

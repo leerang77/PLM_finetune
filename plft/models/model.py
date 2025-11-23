@@ -20,6 +20,7 @@ class PLMTaskModel(PreTrainedModel):
         task_type: TaskType,
         backbone_name: str,
         head: nn.Module,
+        freeze_backbone: bool = False,
     ):
         """
         Initializes the PLMTaskModel with a backbone model, and head for task-specific processing
@@ -28,6 +29,7 @@ class PLMTaskModel(PreTrainedModel):
             task_type (TaskType): Type of the task (e.g., SEQ_CLASSIFICATION, TOKEN_CLASSIFICATION).
             backbone_name (str): Name of the pretrained model backbone.
             head (nn.Module): Task-specific head to be used on top of the backbone.
+            freeze_backbone (bool): Whether to freeze the backbone during training.
         """
         # Load the config and backbone
         config = AutoConfig.from_pretrained(backbone_name)
@@ -40,6 +42,11 @@ class PLMTaskModel(PreTrainedModel):
         self.backbone = backbone # Assigns the pretrained weights
         self.head = head # Assigns the prediction head
         self.task_type = task_type
+        self.freeze_backbone = freeze_backbone
+
+        if self.freeze_backbone:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
     
     def forward(
         self,
@@ -62,15 +69,22 @@ class PLMTaskModel(PreTrainedModel):
         Returns:
             SequenceClassifierOutput: Output of the model including logits and loss if labels are provided.
         """
+        backbone_kwargs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "return_dict": True,
+            "output_hidden_states": output_hidden_states,
+            "output_attentions": output_attentions,
+        }
         # Compute embedding
-        outputs = self.backbone(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            return_dict=True,
-            output_hidden_states=output_hidden_states,
-            output_attentions=output_attentions,
-        )
+        if self.freeze_backbone:
+            with torch.no_grad():
+                outputs = self.backbone(**backbone_kwargs)
+        else:
+            outputs = self.backbone(**backbone_kwargs)
+
         hidden_states = outputs.last_hidden_state
+        
         # The Hugging Face Trainer may inject `num_items_in_batch` (and other
         # internal kwargs) into the model call. Many head implementations
         # don't accept these extra kwargs, which causes a TypeError when

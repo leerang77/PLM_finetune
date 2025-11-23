@@ -14,7 +14,8 @@ data:
 model:
   backbone_name: Rostlab/prot_bert
   task_type: SEQ_CLASSIFICATION # one of: SEQ_CLASSIFICATION, SEQ_REGRESSION, TOKEN_CLASSIFICATION, TOKEN_REGRESSION
-
+  freeze_backbone: false  # set to true to freeze the backbone during training
+  
 tokenizer:
   name: ${model.backbone_name}
   do_lower_case: false
@@ -30,7 +31,6 @@ head:
     dropout_rate: 0.1
     classification_mode: protein # choose residue, protein. Make sure it is consistent with model.task_type
     pooling_strategy: mean # only used if protein classification mode, choose between mean, cls
-
 
 peft:
   enabled: true
