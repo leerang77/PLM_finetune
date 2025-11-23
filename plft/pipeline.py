@@ -11,6 +11,7 @@ import torch
 from hydra import main
 from omegaconf import DictConfig
 from transformers import AutoTokenizer, AutoConfig
+from transformers.trainer_utils import get_last_checkpoint
 from plft.utils.config import to_task_type
 from plft.utils.lora_utils import inject_lora
 from plft.models.model import PLMTaskModel
@@ -159,6 +160,8 @@ def get_trainer(
         eval_strategy=tr_cfg["eval_strategy"],
         save_strategy=tr_cfg["save_strategy"],
         logging_steps=tr_cfg["logging_steps"],
+        early_stopping=tr_cfg["early_stopping"],
+        early_stopping_patience=tr_cfg["early_stopping_patience"]
     )
     return trainer
 
@@ -192,8 +195,21 @@ def run(cfg: DictConfig):
         cfg=cfg,
     )
 
-    # 5. Train + eval
-    trainer.train()
+    # 5. Train
+    output_dir = Path(cfg["trainer"]["output_dir"])
+    resume_from_checkpoint = cfg["trainer"]["resume_from_checkpoint"]
+    last_checkpoint = None
+    if resume_from_checkpoint == "auto":
+        if os.path.isdir(output_dir):
+            last_checkpoint = get_last_checkpoint(output_dir)
+            print(f"Resuming from last checkpoint: {last_checkpoint}")
+    elif isinstance(resume_from_checkpoint, str):
+        last_checkpoint = resume_from_checkpoint
+        if not os.path.exists(last_checkpoint):
+            raise ValueError(f"Checkpoint path {last_checkpoint} does not exist.")
+    train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
+
+    # 6. Evaluate
     split = cfg["trainer"].get("eval_split", "validation")
     val_metrics = trainer.evaluate(split=split)
     trainer.save_metrics(split, val_metrics)
@@ -204,10 +220,8 @@ def run(cfg: DictConfig):
         trainer.save_metrics("test", test_metrics)
         print("Test:", test_metrics)
 
-    output_dir = Path(cfg["trainer"]["output_dir"])
-    with open(output_dir / "trainer_state.json", "w", encoding="UTF-8") as f:
-        json.dump(trainer.trainer.state.to_dict(), f, indent=2)
-
+    # 7. Save trainer state and analyze run
+    trainer.trainer.state.save_to_json(str(output_dir / "trainer_state.json"))
     result = analyze_run(
         run_dir=output_dir,
     )

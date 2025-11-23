@@ -7,6 +7,7 @@ from transformers import (
     AutoTokenizer,
     Trainer,
     TrainingArguments,
+    EarlyStoppingCallback,
 )
 # from metrics import get_compute_metrics_fn
 from plft.utils.metrics import get_compute_metrics_fn
@@ -37,6 +38,8 @@ class ProteinTaskTrainer:
         metric_for_best_model: str="eval_loss",
         greater_is_better: bool=False,
         logging_steps: int = 50,
+        early_stopping: bool = False,
+        early_stopping_patience: int = 3,
     ):
         """
         Initializes the ProteinTaskTrainer with model, datasets, tokenizer, and training parameters.
@@ -53,6 +56,12 @@ class ProteinTaskTrainer:
 
         compute_metrics = get_compute_metrics_fn(self.model.task_type) # Get the appropriate metrics function based on task type
         
+        # Early stopping callback
+        early_stopping_callback = EarlyStoppingCallback(
+            early_stopping_patience=early_stopping_patience,
+            early_stopping_threshold=0.0,
+        ) if early_stopping else None
+
         # Initialize the Trainer
         args = TrainingArguments(
             output_dir=output_dir,
@@ -80,6 +89,7 @@ class ProteinTaskTrainer:
             eval_dataset=self.eval_dataset,
             data_collator=self.data_collator,
             compute_metrics=compute_metrics,
+            callbacks=[early_stopping_callback] if early_stopping else None,
         )
 
     def train(self):
