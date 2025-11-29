@@ -107,12 +107,7 @@ def token_regression_metrics(
     labels = np.asarray(labels)
 
     # Build mask of valid tokens:
-    if np.issubdtype(labels.dtype, np.integer):
-        mask = labels != -100
-        labels = labels.astype(np.float32)
-    else:
-        # floating labels: treat NaN as padding
-        mask = ~np.isnan(labels)
+    mask = labels != -100
 
     vpreds  = preds[mask]
     vlabels = labels[mask]
