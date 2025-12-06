@@ -67,6 +67,8 @@ class ProteinTaskTrainer:
             output_dir=output_dir,
             num_train_epochs=num_train_epochs,
             max_steps=max_steps,
+            lr_scheduler_type="constant_with_warmup",
+            warmup_ratio=0.1,
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_train_batch_size,
             eval_strategy=eval_strategy,
